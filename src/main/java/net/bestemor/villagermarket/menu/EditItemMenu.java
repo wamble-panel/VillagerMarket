@@ -270,7 +270,12 @@ public class EditItemMenu extends Menu {
 
     private void typePrice(Player player, boolean isBuy) {
         player.sendMessage(ConfigManager.getMessage("messages.type_price"));
-        plugin.getChatListener().addDecimalListener(player, (result) -> {
+        plugin.getChatListener().addDecimalListener(player, (typed) -> {
+            BigDecimal result = ShopItem.roundPrice(typed);
+            if (result.compareTo(typed) != 0) {
+                player.sendMessage(ConfigManager.getCurrencyBuilder("messages.price_rounded")
+                        .replaceCurrency("%price%", result).addPrefix().build());
+            }
 
             BigDecimal maxPrice = BigDecimal.valueOf(ConfigManager.getDouble("max_item_price"));
             if (!player.hasPermission("villagermarket.bypass_price") && maxPrice.doubleValue() != 0 && result.compareTo(maxPrice) > 0) {

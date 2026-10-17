@@ -7,7 +7,7 @@ import net.bestemor.villagermarket.shop.AdminShop;
 import net.bestemor.villagermarket.shop.PlayerShop;
 import net.bestemor.villagermarket.shop.ShopMenu;
 import net.bestemor.villagermarket.shop.VillagerShop;
-import net.milkbowl.vault.economy.Economy;
+import net.bestemor.villagermarket.economy.ShopEconomy;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
@@ -61,12 +61,24 @@ public class EditShopMenu extends Menu {
                     player.sendMessage(ConfigManager.getMessage("messages.max_rent_time"));
                     return;
                 }
-                Economy economy = VMPlugin.getEconomy();
-                if (economy.getBalance(player) < playerShop.getCost()) {
+                ShopEconomy economy = VMPlugin.getShopEconomy();
+                if (economy == null) {
+                    player.sendMessage(ConfigManager.getMessage("messages.economy_error"));
+                    return;
+                }
+                BigDecimal rent = economy.price(BigDecimal.valueOf(playerShop.getCost()));
+                if (!economy.has(player, rent)) {
                     player.sendMessage(ConfigManager.getMessage("messages.not_enough_money"));
                     return;
                 }
-                economy.withdrawPlayer(player, playerShop.getCost());
+                // More time is only added once the rent is taken.
+                ShopEconomy.Result paid = economy.withdraw(player, rent, "Paid rent for a villager shop");
+                if (!paid.isSuccess()) {
+                    player.sendMessage(ConfigManager.getMessage(paid == ShopEconomy.Result.NOT_ENOUGH_MONEY
+                            ? "messages.not_enough_money" : paid == ShopEconomy.Result.NO_ROOM_FOR_CHANGE
+                            ? "messages.no_room_for_change" : "messages.economy_error"));
+                    return;
+                }
                 playerShop.increaseTime();
                 shop.updateMenu(ShopMenu.EDIT_SHOP);
 

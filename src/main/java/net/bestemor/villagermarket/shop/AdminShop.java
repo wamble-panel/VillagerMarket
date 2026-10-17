@@ -6,7 +6,7 @@ import net.bestemor.villagermarket.VMPlugin;
 import net.bestemor.villagermarket.event.interact.BuyShopItemsEvent;
 import net.bestemor.villagermarket.event.interact.SellShopItemsEvent;
 import net.bestemor.villagermarket.event.interact.TradeShopItemsEvent;
-import net.milkbowl.vault.economy.Economy;
+import net.bestemor.villagermarket.economy.ShopEconomy;
 import org.bukkit.Bukkit;
 import org.bukkit.command.ConsoleCommandSender;
 import org.bukkit.entity.Player;
@@ -24,13 +24,33 @@ public class AdminShop extends VillagerShop {
 
     @Override
     public void buyItem(ShopItem item, int amount, Player player) {
-        Economy economy = VMPlugin.getEconomy();
-
         BigDecimal price = item.getSellPrice(amount, true);
 
         if (!item.verifyPurchase(player, ItemMode.SELL, amount)) {
             return;
         }
+        if (item.isItemTrade()) {
+            TradeShopItemsEvent tradeShopItemsEvent = new TradeShopItemsEvent(player, this, item);
+            Bukkit.getPluginManager().callEvent(tradeShopItemsEvent);
+            if (tradeShopItemsEvent.isCancelled()) {
+                return;
+            }
+            removeItems(player.getInventory(), item.getItemTrade(), item.getItemTradeAmount());
+        } else {
+            if (noEconomy(player)) {
+                return;
+            }
+            // Pay first; the item is only handed out once the money is taken.
+            ShopEconomy economy = VMPlugin.getShopEconomy();
+            String reason = "Bought " + amount + "x " + org.bukkit.ChatColor.stripColor(item.getItemName()) + " (server shop)";
+            if (!paymentOk(player, economy.withdraw(player, price, reason), true)) {
+                return;
+            }
+            BigDecimal left = economy.getBalance(player);
+            player.sendMessage(ConfigManager.getCurrencyBuilder("messages.money_left").replaceCurrency("%amount%", left).addPrefix().build());
+            shopStats.addEarned(price.doubleValue());
+        }
+
         CurrencyBuilder message = ConfigManager.getCurrencyBuilder("messages.bought_item_as_customer")
                 .replace("%amount%", String.valueOf(amount))
                 .replace("%item%", item.getItemName())
@@ -43,20 +63,6 @@ public class AdminShop extends VillagerShop {
             message.replaceCurrency("%price%", price);
         }
         player.sendMessage(message.build());
-
-        if (item.isItemTrade()) {
-            TradeShopItemsEvent tradeShopItemsEvent = new TradeShopItemsEvent(player, this, item);
-            Bukkit.getPluginManager().callEvent(tradeShopItemsEvent);
-            if (tradeShopItemsEvent.isCancelled()) {
-                return;
-            }
-            removeItems(player.getInventory(), item.getItemTrade(), item.getItemTradeAmount());
-        } else {
-            economy.withdrawPlayer(player, price.doubleValue());
-            BigDecimal left = BigDecimal.valueOf(economy.getBalance(player));
-            player.sendMessage(ConfigManager.getCurrencyBuilder("messages.money_left").replaceCurrency("%amount%", left).addPrefix().build());
-            shopStats.addEarned(price.doubleValue());
-        }
 
         shopStats.addSold(amount);
         giveShopItem(player, item, amount);
@@ -76,22 +82,26 @@ public class AdminShop extends VillagerShop {
 
     @Override
     public void sellItem(ShopItem item, int amount, Player player) {
-        Economy economy = VMPlugin.getEconomy();
-
         BigDecimal price = item.getBuyPrice(amount, true);
 
         if (!item.verifyPurchase(player, ItemMode.BUY, amount)) {
             return;
         }
+        if (noEconomy(player)) {
+            return;
+        }
+        // Pay the player first; their items are only taken once the money is in their bank.
+        String reason = "Sold " + amount + "x " + org.bukkit.ChatColor.stripColor(item.getItemName()) + " (server shop)";
+        if (!paymentOk(player, VMPlugin.getShopEconomy().deposit(player, price, reason), false)) {
+            return;
+        }
+        removeItems(player.getInventory(), item.getRawItem(), amount);
 
         player.sendMessage(ConfigManager.getCurrencyBuilder("messages.sold_item_as_customer")
                 .replace("%amount%", String.valueOf(amount))
                 .replaceCurrency("%price%", price)
                 .replace("%item%", item.getItemName())
                 .replace("%shop%", getShopName()).build());
-
-        economy.depositPlayer(player, price.doubleValue());
-        removeItems(player.getInventory(), item.getRawItem(), amount);
 
         int transactions = (int) Math.ceil(amount / (double) item.getAmount());
         item.incrementPlayerTrades(player, transactions);
@@ -124,10 +134,12 @@ public class AdminShop extends VillagerShop {
      * Runs when a Player wants to buy a command
      */
     public void buyCommand(Player player, ShopItem shopItem) {
-        Economy economy = VMPlugin.getEconomy();
-
+        if (noEconomy(player)) {
+            return;
+        }
+        ShopEconomy economy = VMPlugin.getShopEconomy();
         BigDecimal price = shopItem.getSellPrice();
-        if (economy.getBalance(player) < price.doubleValue()) {
+        if (!economy.has(player, price)) {
             player.sendMessage(ConfigManager.getMessage("messages.not_enough_money"));
             return;
         }
@@ -140,7 +152,10 @@ public class AdminShop extends VillagerShop {
             player.sendMessage(ConfigManager.getMessage("messages.reached_command_limit"));
             return;
         }
-        economy.withdrawPlayer(player, price.doubleValue());
+        // Commands only run once the money is taken.
+        if (!paymentOk(player, economy.withdraw(player, price, "Bought a command item (server shop)"), true)) {
+            return;
+        }
 
         if (shopItem.getCommands() != null && !shopItem.getCommands().isEmpty()) {
             ConsoleCommandSender sender = Bukkit.getConsoleSender();

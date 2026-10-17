@@ -5,8 +5,9 @@ version: 1.13.3
 author: Bestem0r
 description: A plugin made by Bestem0r to create Villager Shops
 api-version: 1.13
-depend: [ Vault ]
 softdepend:
+  - NetherBank
+  - Vault
   - Essentials
   - CMI
   - WorldEdit

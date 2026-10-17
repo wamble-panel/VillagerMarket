@@ -3,6 +3,7 @@ package net.bestemor.villagermarket.shop;
 import net.bestemor.core.config.ConfigManager;
 import net.bestemor.core.menu.Menu;
 import net.bestemor.villagermarket.VMPlugin;
+import net.bestemor.villagermarket.economy.ShopEconomy;
 import net.bestemor.villagermarket.menu.*;
 import net.bestemor.villagermarket.utils.VMUtils;
 import net.citizensnpcs.api.CitizensAPI;
@@ -117,6 +118,51 @@ public abstract class VillagerShop {
         } else {
             menus.get(shopMenu).open(player);
         }
+    }
+
+    /** The tax on a price, rounded up to what the economy can move and never more than the price. */
+    protected BigDecimal taxOf(BigDecimal price) {
+        ShopEconomy economy = VMPlugin.getShopEconomy();
+        BigDecimal percent = BigDecimal.valueOf(ConfigManager.getDouble("tax"));
+        if (economy == null || percent.signum() <= 0 || price.signum() <= 0) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal tax = economy.ceil(price.multiply(percent).divide(BigDecimal.valueOf(100), 10, java.math.RoundingMode.HALF_UP));
+        return tax.min(price);
+    }
+
+    /**
+     * Tells the player why a payment didn't happen. Returns true if it worked.
+     *
+     * @param customerPays true if the player was paying, false if the shop owner was paying them
+     */
+    protected static boolean paymentOk(Player player, ShopEconomy.Result result, boolean customerPays) {
+        switch (result) {
+            case SUCCESS:
+                return true;
+            case NOT_ENOUGH_MONEY:
+                player.sendMessage(ConfigManager.getMessage(customerPays ? "messages.not_enough_money" : "messages.owner_not_enough_money"));
+                break;
+            case RECEIVER_FULL:
+                player.sendMessage(ConfigManager.getMessage(customerPays ? "messages.owner_bank_full" : "messages.your_bank_full"));
+                break;
+            case NO_ROOM_FOR_CHANGE:
+                player.sendMessage(ConfigManager.getMessage(customerPays ? "messages.no_room_for_change" : "messages.owner_no_room_for_change"));
+                break;
+            default:
+                player.sendMessage(ConfigManager.getMessage("messages.economy_error"));
+                break;
+        }
+        return false;
+    }
+
+    /** True (and a message) if there is no economy to pay with. */
+    protected static boolean noEconomy(Player player) {
+        if (VMPlugin.getShopEconomy() != null) {
+            return false;
+        }
+        player.sendMessage(ConfigManager.getMessage("messages.economy_error"));
+        return true;
     }
 
     protected void removeItems(Inventory inventory, ItemStack item, int amount) {

@@ -8,6 +8,9 @@ auto_update: true
 refund_percent: 50.0
 #How often should villager shops auto-save? (minutes)
 auto_save_interval: 10
+#Which money system shops use: auto (NetherBank if installed, otherwise Vault), netherbank or vault.
+#With NetherBank, prices go in steps of 0.25 netherite (one scrap) and are rounded to that.
+economy: auto
 #How much (%) should be taken as tax?
 tax: 0
 #Currency symbol

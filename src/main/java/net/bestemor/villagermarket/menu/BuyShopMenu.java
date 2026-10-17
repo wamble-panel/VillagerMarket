@@ -9,7 +9,7 @@ import net.bestemor.villagermarket.VMPlugin;
 import net.bestemor.villagermarket.event.BuyShopEvent;
 import net.bestemor.villagermarket.shop.PlayerShop;
 import net.bestemor.villagermarket.shop.ShopMenu;
-import net.milkbowl.vault.economy.Economy;
+import net.bestemor.villagermarket.economy.ShopEconomy;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -61,7 +61,11 @@ public class BuyShopMenu extends Menu {
         content.setClickable(buyShopSlot, Clickable.of(buyShop, (event) -> {
             Player player = (Player) event.getWhoClicked();
 
-            Economy economy = VMPlugin.getEconomy();
+            ShopEconomy economy = VMPlugin.getShopEconomy();
+            if (economy == null) {
+                player.sendMessage(ConfigManager.getMessage("messages.economy_error"));
+                return;
+            }
             if (ConfigManager.getBoolean("buy_shop_permission") && !player.hasPermission("villagermarket.buy_shop")) {
                 player.sendMessage(ConfigManager.getMessage("messages.no_permission_buy_shop"));
                 return;
@@ -76,7 +80,8 @@ public class BuyShopMenu extends Menu {
                 player.playSound(player.getLocation(), ConfigManager.getSound("sounds.max_shops"), 1, 1);
                 return;
             }
-            if (economy.getBalance(player) < shop.getCost()) {
+            BigDecimal shopCost = economy.price(BigDecimal.valueOf(shop.getCost()));
+            if (!economy.has(player, shopCost)) {
                 player.sendMessage(ConfigManager.getMessage("messages.not_enough_money"));
                 return;
             }
@@ -87,7 +92,14 @@ public class BuyShopMenu extends Menu {
                 return;
             }
 
-            economy.withdrawPlayer(player, shop.getCost());
+            // The shop is only handed over once the money is taken.
+            ShopEconomy.Result paid = economy.withdraw(player, shopCost, "Bought a villager shop");
+            if (!paid.isSuccess()) {
+                player.sendMessage(ConfigManager.getMessage(paid == ShopEconomy.Result.NOT_ENOUGH_MONEY
+                        ? "messages.not_enough_money" : paid == ShopEconomy.Result.NO_ROOM_FOR_CHANGE
+                        ? "messages.no_room_for_change" : "messages.economy_error"));
+                return;
+            }
             shop.setOwner(player);
 
             shop.updateMenu(ShopMenu.EDIT_SHOP);

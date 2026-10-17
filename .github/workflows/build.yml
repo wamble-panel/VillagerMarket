@@ -1,0 +1,39 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build plugin
+        run: mvn -B package
+
+      - name: Check the NetherBank API is not bundled
+        # It must come from the NetherBank plugin at runtime, otherwise the two plugins can't talk.
+        run: |
+          for jar in target/*.jar; do
+            if unzip -l "$jar" | grep -q 'com/wamble/'; then
+              echo "::error::$jar contains com/wamble classes"
+              exit 1
+            fi
+          done
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: VillagerMarket
+          path: |
+            target/*.jar
+            !target/original-*.jar

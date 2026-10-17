@@ -7,7 +7,7 @@ import net.bestemor.villagermarket.VMPlugin;
 import net.bestemor.villagermarket.menu.EditItemMenu;
 import net.bestemor.villagermarket.menu.StorageHolder;
 import net.bestemor.villagermarket.utils.VMUtils;
-import net.milkbowl.vault.economy.Economy;
+import net.bestemor.villagermarket.economy.ShopEconomy;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.OfflinePlayer;
@@ -347,7 +347,11 @@ public class ShopItem {
             customer.sendMessage(ConfigManager.getMessage("messages.cannot_" + (verifyMode == SELL ? "buy_from" : "sell_to") + "_yourself"));
             return false;
         }
-        Economy economy = VMPlugin.getEconomy();
+        ShopEconomy economy = VMPlugin.getShopEconomy();
+        if (economy == null && !isItemTrade()) {
+            customer.sendMessage(ConfigManager.getMessage("messages.economy_error"));
+            return false;
+        }
         if (verifyMode == SELL && isItemTrade() && VMUtils.getAmountInventory(itemTrade, customer.getInventory()) < itemTradeAmount) {
             customer.sendMessage(ConfigManager.getMessage("messages.not_enough_in_inventory"));
             return false;
@@ -357,12 +361,12 @@ public class ShopItem {
             return false;
         }
         if (!isItemTrade() && verifyMode == SELL && itemTrade == null
-                && economy.getBalance(customer) < getSellPrice(amount, true).doubleValue()) {
+                && !economy.has(customer, getSellPrice(amount, true))) {
             customer.sendMessage(ConfigManager.getMessage("messages.not_enough_money"));
             return false;
         }
         if (!isItemTrade() && verifyMode == BUY && owner != null && itemTrade == null
-                && economy.getBalance(owner) < getBuyPrice(amount, true).doubleValue()) {
+                && !economy.has(owner, getBuyPrice(amount, true))) {
             customer.sendMessage(ConfigManager.getMessage("messages.owner_not_enough_money"));
             return false;
         }
@@ -547,9 +551,17 @@ public class ShopItem {
         if (stackAmount <= 0 || amount <= 0) {
             return BigDecimal.ZERO;
         }
-        return basePrice.multiply(BigDecimal.valueOf(amount))
-                .divide(BigDecimal.valueOf(stackAmount), 32, RoundingMode.HALF_UP)
-                .setScale(2, RoundingMode.HALF_UP);
+        return roundPrice(basePrice.multiply(BigDecimal.valueOf(amount))
+                .divide(BigDecimal.valueOf(stackAmount), 32, RoundingMode.HALF_UP));
+    }
+
+    /**
+     * Rounds a price to what the economy can charge (quarters with NetherBank, cents with Vault).
+     * What players see is exactly what they pay; a price above zero never becomes free.
+     */
+    public static BigDecimal roundPrice(BigDecimal raw) {
+        ShopEconomy economy = VMPlugin.getShopEconomy();
+        return economy == null ? raw.setScale(2, RoundingMode.HALF_UP) : economy.price(raw);
     }
 
     public BigDecimal getSellPrice(int amount, boolean applyDiscount) {
@@ -561,9 +573,8 @@ public class ShopItem {
         if (stackAmount <= 0 || amount <= 0) {
             return BigDecimal.ZERO;
         }
-        return basePrice.multiply(BigDecimal.valueOf(amount))
-                .divide(BigDecimal.valueOf(stackAmount), 32, RoundingMode.HALF_UP)
-                .setScale(2, RoundingMode.HALF_UP);
+        return roundPrice(basePrice.multiply(BigDecimal.valueOf(amount))
+                .divide(BigDecimal.valueOf(stackAmount), 32, RoundingMode.HALF_UP));
     }
 
     private String getItemName(ItemStack i) {

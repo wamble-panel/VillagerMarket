@@ -416,7 +416,12 @@ public class Shopfront {
                 player.sendMessage(ConfigManager.getMessage("messages.amount_successful"));
                 player.sendMessage(ConfigManager.getMessage("messages.type_price"));
 
-                plugin.getChatListener().addDecimalListener(player, (price) -> {
+                plugin.getChatListener().addDecimalListener(player, (typedPrice) -> {
+                    BigDecimal price = ShopItem.roundPrice(typedPrice);
+                    if (price.compareTo(typedPrice) != 0) {
+                        player.sendMessage(ConfigManager.getCurrencyBuilder("messages.price_rounded")
+                                .replaceCurrency("%price%", price).addPrefix().build());
+                    }
 
                     BigDecimal maxPrice = BigDecimal.valueOf(ConfigManager.getDouble("max_item_price"));
                     if (!player.hasPermission("villagermarket.bypass_price") && maxPrice.doubleValue() != 0 && price.compareTo(maxPrice) > 0) {

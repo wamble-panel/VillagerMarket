@@ -8,6 +8,10 @@ import net.bestemor.villagermarket.command.subcommand.*;
 import net.bestemor.villagermarket.command.subcommand.TeleportCommand;
 import net.bestemor.villagermarket.command.subcommand.ListCommand;
 import net.bestemor.villagermarket.command.subcommand.SpawnCommand;
+import net.bestemor.villagermarket.economy.NetherBankShopEconomy;
+import net.bestemor.villagermarket.economy.PendingPayouts;
+import net.bestemor.villagermarket.economy.ShopEconomy;
+import net.bestemor.villagermarket.economy.VaultShopEconomy;
 import net.bestemor.villagermarket.listener.EntityListener;
 import net.bestemor.villagermarket.listener.PlayerListener;
 import net.bestemor.villagermarket.shop.ShopManager;
@@ -27,6 +31,8 @@ import java.util.*;
 public class VMPlugin extends CorePlugin {
 
     private static Economy economy = null;
+    private static ShopEconomy shopEconomy = null;
+    private PendingPayouts pendingPayouts;
 
     public static final List<String> log = new ArrayList<>();
 
@@ -38,6 +44,7 @@ public class VMPlugin extends CorePlugin {
     @Override
     protected void onPluginEnable() {
         setupEconomy();
+        this.pendingPayouts = new PendingPayouts(this);
 
         Metrics metrics = new Metrics(this, 8922);
 
@@ -136,14 +143,25 @@ public class VMPlugin extends CorePlugin {
     }
 
     /**
-     * Setup Vault integration
+     * Picks the money system: NetherBank (netherite) when installed, otherwise Vault.
+     * config.yml "economy" can force one: auto, netherbank or vault.
      */
     private void setupEconomy() {
-        RegisteredServiceProvider<Economy> economyProvider = getServer().getServicesManager().getRegistration(Economy.class);
-        if (economyProvider != null) {
-            economy = economyProvider.getProvider();
+        String mode = getConfig().getString("economy", "auto").toLowerCase(Locale.ROOT);
+        if (!mode.equals("vault") && Bukkit.getPluginManager().isPluginEnabled("NetherBank")) {
+            shopEconomy = NetherBankShopEconomy.create();
+        }
+        if (shopEconomy == null && !mode.equals("netherbank") && Bukkit.getPluginManager().isPluginEnabled("Vault")) {
+            RegisteredServiceProvider<Economy> economyProvider = getServer().getServicesManager().getRegistration(Economy.class);
+            if (economyProvider != null) {
+                economy = economyProvider.getProvider();
+                shopEconomy = new VaultShopEconomy(economy);
+            }
+        }
+        if (shopEconomy == null) {
+            Bukkit.getLogger().severe("[VillagerMarket] No economy found! Install NetherBank, or Vault with an economy plugin.");
         } else {
-            Bukkit.getLogger().severe("[VillagerMarket] Could not find Economy Provider!");
+            Bukkit.getLogger().info("[VillagerMarket] Using " + shopEconomy.getName() + " for shop payments.");
         }
     }
 
@@ -190,8 +208,18 @@ public class VMPlugin extends CorePlugin {
         return localizedMaterials.get(material);
     }
 
+    /** The raw Vault economy, or null when NetherBank is used. Prefer {@link #getShopEconomy()}. */
     public static Economy getEconomy() {
         return economy;
+    }
+
+    /** The money system shops use (NetherBank or Vault), or null if there is none. */
+    public static ShopEconomy getShopEconomy() {
+        return shopEconomy;
+    }
+
+    public PendingPayouts getPendingPayouts() {
+        return pendingPayouts;
     }
 
     public boolean isCitizensEnabled() {

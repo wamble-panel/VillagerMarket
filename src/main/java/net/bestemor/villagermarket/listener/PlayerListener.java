@@ -292,6 +292,12 @@ public class PlayerListener implements Listener {
     public void onJoin(PlayerJoinEvent event) {
 
         Player player = event.getPlayer();
+        // Money a shop owed this player (e.g. a refund that didn't fit in their bank).
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (player.isOnline() && plugin.getPendingPayouts() != null) {
+                plugin.getPendingPayouts().tryPay(player);
+            }
+        }, 40L);
         if (player.hasPermission("villagermarket.admin") && !ConfigManager.getBoolean("disable_update_announce")) {
             new UpdateChecker(plugin, 82965).getVersion(version -> {
                 String currentVersion = plugin.getDescription().getVersion();

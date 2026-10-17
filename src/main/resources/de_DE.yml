@@ -58,6 +58,13 @@ messages:
   villager_removed: '&cVillagerShop entfernt!'
   blacklisted: '&cDieser Artikel ist auf der Blacklist!'
   owner_not_enough_money: '&cDer Ladenbesitzer hat nicht genug Geld!'
+  owner_bank_full: "&cThe shop owner's bank is full, so they can't receive this payment!"
+  your_bank_full: "&cYour bank is full, so you can't receive this payment! Take something out first."
+  no_room_for_change: "&cYour bank is too full to make change. Take something out first!"
+  owner_no_room_for_change: "&cThe shop owner's bank is too full to make change!"
+  economy_error: "&cPayments are unavailable right now, please try again in a moment."
+  price_rounded: "&7Prices go in steps of the bank's smallest amount, so the price was set to &e%price%&7."
+  pending_money_paid: "&aYou received &e%amount% &athat a shop owed you."
   not_enough_in_inventory: '&cDu hast nicht genug Gegenstände in deinem Inventar!'
   #Placeholders: %player%, %amount%, %item%, %price%
   bought_item_as_owner: '&b%player%&7 hat dir &b%amount%x %item%&7 für &a%price%&7 verkauft.'

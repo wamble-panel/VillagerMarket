@@ -7,9 +7,9 @@ import net.bestemor.villagermarket.event.AbandonShopEvent;
 import net.bestemor.villagermarket.event.interact.BuyShopItemsEvent;
 import net.bestemor.villagermarket.event.interact.SellShopItemsEvent;
 import net.bestemor.villagermarket.event.interact.TradeShopItemsEvent;
+import net.bestemor.villagermarket.economy.ShopEconomy;
 import net.bestemor.villagermarket.menu.BuyShopMenu;
 import net.bestemor.villagermarket.menu.StorageHolder;
-import net.milkbowl.vault.economy.Economy;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
@@ -21,7 +21,9 @@ import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -73,8 +75,6 @@ public class PlayerShop extends VillagerShop {
 
     @Override
     public void buyItem(ShopItem item, int amount, Player player) {
-        Economy economy = VMPlugin.getEconomy();
-
         BigDecimal price = item.getSellPrice(amount, true);
         OfflinePlayer owner = Bukkit.getOfflinePlayer(ownerUUID);
         if (!item.verifyPurchase(player, ItemMode.SELL, amount, owner, storageHolder)) {
@@ -104,11 +104,28 @@ public class PlayerShop extends VillagerShop {
             if (buyShopItemsEvent.isCancelled()) {
                 return;
             }
-            BigDecimal tax = BigDecimal.valueOf(ConfigManager.getDouble("tax"));
-            BigDecimal taxAmount = tax.divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP).multiply(price);
+            if (noEconomy(player)) {
+                return;
+            }
+            ShopEconomy economy = VMPlugin.getShopEconomy();
+            BigDecimal taxAmount = taxOf(price);
+            BigDecimal ownerShare = price.subtract(taxAmount);
+            String reason = "Bought " + amount + "x " + plain(item.getItemName()) + " at " + plain(getShopName());
 
-            depositOwner(price.subtract(taxAmount));
-            economy.withdrawPlayer(player, price.doubleValue());
+            // Take the money first. Nothing else happens unless the payment worked.
+            ShopEconomy.Result result;
+            if (ConfigManager.getBoolean("require_collect")) {
+                result = economy.withdraw(player, price, reason);
+                if (result.isSuccess()) {
+                    super.collectedMoney = collectedMoney.add(ownerShare);
+                    super.updateMenu(ShopMenu.EDIT_SHOP);
+                }
+            } else {
+                result = economy.pay(player, incomeParts(ownerShare), taxAmount, reason);
+            }
+            if (!paymentOk(player, result, true)) {
+                return;
+            }
             shopStats.addEarned(price.doubleValue());
 
 
@@ -132,7 +149,7 @@ public class PlayerShop extends VillagerShop {
                 }
             }
 
-            BigDecimal left = BigDecimal.valueOf(economy.getBalance(player));
+            BigDecimal left = economy.getBalance(player);
             player.sendMessage(ConfigManager.getCurrencyBuilder("messages.money_left").replaceCurrency("%amount%", left).addPrefix().build());
         }
 
@@ -160,12 +177,10 @@ public class PlayerShop extends VillagerShop {
 
     @Override
     public void sellItem(ShopItem item, int amount, Player player) {
-        Economy economy = VMPlugin.getEconomy();
         OfflinePlayer owner = Bukkit.getOfflinePlayer(ownerUUID);
 
-        BigDecimal tax = BigDecimal.valueOf(ConfigManager.getDouble("tax"));
         BigDecimal price = item.getBuyPrice(amount, true);
-        BigDecimal taxAmount = tax.divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP).multiply(price);
+        BigDecimal taxAmount = taxOf(price);
 
         if (!item.verifyPurchase(player, ItemMode.BUY, amount, Bukkit.getOfflinePlayer(ownerUUID), storageHolder)) {
             return;
@@ -175,10 +190,20 @@ public class PlayerShop extends VillagerShop {
         if (sellShopItemsEvent.isCancelled()) {
             return;
         }
+        if (noEconomy(player)) {
+            return;
+        }
+        ShopEconomy economy = VMPlugin.getShopEconomy();
+        // The owner pays first (the customer gets the price minus tax). Items only move if that worked.
+        String reason = "Sold " + amount + "x " + plain(item.getItemName()) + " to " + plain(getShopName());
+        Map<UUID, BigDecimal> payout = new LinkedHashMap<>();
+        payout.put(player.getUniqueId(), price.subtract(taxAmount));
+        if (!paymentOk(player, economy.pay(owner, payout, taxAmount, reason), false)) {
+            return;
+        }
         removeItems(player.getInventory(), item.getRawItem(), amount);
-        economy.depositPlayer(player, price.subtract(taxAmount).doubleValue());
 
-        BigDecimal moneyLeft = BigDecimal.valueOf(economy.getBalance(player));
+        BigDecimal moneyLeft = economy.getBalance(player);
         storageHolder.addItem(item.getRawItem(), amount);
         shopStats.addBought(amount);
         shopStats.addSpent(price.doubleValue());
@@ -191,7 +216,6 @@ public class PlayerShop extends VillagerShop {
             player.sendMessage(ConfigManager.getCurrencyBuilder("messages.tax").replaceCurrency("%tax%", taxAmount).addPrefix().build());
         }
 
-        economy.withdrawPlayer(owner, price.doubleValue());
         if (owner.isOnline() && owner.getPlayer() != null && !disableNotifications) {
             Player ownerOnline = owner.getPlayer();
             CurrencyBuilder builder = ConfigManager.getCurrencyBuilder("messages.bought_item_as_owner")
@@ -225,45 +249,59 @@ public class PlayerShop extends VillagerShop {
      * Collects money
      */
     public void collectMoney(Player player) {
-        Economy economy = VMPlugin.getEconomy();
-        economy.depositPlayer(player, collectedMoney.doubleValue());
-        player.sendMessage(ConfigManager.getCurrencyBuilder("messages.collected_money").replaceCurrency("%amount%", collectedMoney).addPrefix().build());
+        if (noEconomy(player)) {
+            return;
+        }
+        ShopEconomy economy = VMPlugin.getShopEconomy();
+        BigDecimal amount = economy.floor(collectedMoney);
+        if (amount.signum() > 0) {
+            // Only take it out of the shop once it's safely in the player's bank.
+            if (!paymentOk(player, economy.deposit(player, amount, "Collected income from " + plain(getShopName())), false)) {
+                return;
+            }
+            super.collectedMoney = collectedMoney.subtract(amount);
+        }
+        player.sendMessage(ConfigManager.getCurrencyBuilder("messages.collected_money").replaceCurrency("%amount%", amount).addPrefix().build());
         player.playSound(player.getLocation(), ConfigManager.getSound("sounds.collect_money"), 1, 1);
-        super.collectedMoney = BigDecimal.valueOf(0);
         super.updateMenu(ShopMenu.EDIT_SHOP);
+    }
+
+    /** Who gets the shop's income: the owner, or the owner and trusted players (distribute_income). */
+    private Map<UUID, BigDecimal> incomeParts(BigDecimal amount) {
+        ShopEconomy economy = VMPlugin.getShopEconomy();
+        if (ConfigManager.getBoolean("distribute_income")) {
+            List<UUID> trusted = trustedPlayers.stream().map(UUID::fromString).collect(Collectors.toList());
+            return economy.split(amount, ownerUUID, trusted);
+        }
+        Map<UUID, BigDecimal> parts = new LinkedHashMap<>();
+        parts.put(ownerUUID, amount);
+        return parts;
+    }
+
+    private static String plain(String text) {
+        return text == null ? "" : org.bukkit.ChatColor.stripColor(text);
     }
 
     /**
      * Deposits money to the Shop/Owner
      */
     public void depositOwner(BigDecimal amount) {
+        // Kept for plugins using the old API: adds new money for the owner (and trusted players).
         if (ConfigManager.getBoolean("require_collect")) {
             super.collectedMoney = collectedMoney.add(amount);
             super.updateMenu(ShopMenu.EDIT_SHOP);
-
-        } else if (ConfigManager.getBoolean("distribute_income")) {
-
-            List<OfflinePlayer> trusted = trustedPlayers.stream()
-                    .map(UUID::fromString)
-                    .map(Bukkit::getOfflinePlayer)
-                    .collect(Collectors.toList());
-
-            trusted.add(Bukkit.getOfflinePlayer(ownerUUID));
-            BigDecimal split = amount.divide(BigDecimal.valueOf(trusted.size()), 2, RoundingMode.HALF_UP);
-            for (OfflinePlayer p : trusted) {
-                Economy economy = VMPlugin.getEconomy();
-                economy.depositPlayer(p, split.doubleValue());
-            }
-
-        } else {
-            Economy economy = VMPlugin.getEconomy();
-            economy.depositPlayer(Bukkit.getOfflinePlayer(ownerUUID), amount.doubleValue());
+            return;
         }
+        if (VMPlugin.getShopEconomy() == null) {
+            return;
+        }
+        incomeParts(VMPlugin.getShopEconomy().floor(amount)).forEach((uuid, part) ->
+                plugin.getPendingPayouts().payOrKeep(Bukkit.getOfflinePlayer(uuid), part, "Shop income"));
     }
 
     @Override
     public int getAvailable(ShopItem shopItem) {
-        Economy economy = VMPlugin.getEconomy();
+        ShopEconomy economy = VMPlugin.getShopEconomy();
         OfflinePlayer owner = ownerUUID == null ? null : Bukkit.getOfflinePlayer(ownerUUID);
 
         ItemStack i = shopItem.isItemTrade() ? shopItem.getItemTrade() : shopItem.getRawItem();
@@ -274,8 +312,11 @@ public class PlayerShop extends VillagerShop {
             available = Math.min(shopItem.getLimit() - inStorage, available);
         }
 
-        if (owner != null && !shopItem.isItemTrade()) {
-            available = Math.max(0, Math.min(available, (int) Math.floor(economy.getBalance(owner) / shopItem.getBuyPrice().doubleValue()) * shopItem.getAmount()));
+        BigDecimal unitPrice = shopItem.getBuyPrice();
+        if (owner != null && !shopItem.isItemTrade() && unitPrice.signum() > 0) {
+            BigDecimal balance = economy == null ? BigDecimal.ZERO : economy.getBalance(owner);
+            int affordable = balance.divide(unitPrice, 0, RoundingMode.FLOOR).min(BigDecimal.valueOf(Integer.MAX_VALUE / Math.max(1, shopItem.getAmount()))).intValue();
+            available = Math.max(0, Math.min(available, affordable * shopItem.getAmount()));
         }
 
         if (shopItem.isItemTrade()) {
@@ -294,12 +335,16 @@ public class PlayerShop extends VillagerShop {
         closeAllMenus();
 
         OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(ownerUUID);
-        Economy economy = VMPlugin.getEconomy();
 
+        // Refunds go to the owner's bank, or wait in pending_payouts.yml until there's room. Never lost.
         if (cost != -1) {
-            economy.depositPlayer(offlinePlayer, ((double) getCost() * (ConfigManager.getDouble("refund_percent") / 100)) * timesRented);
+            BigDecimal refund = BigDecimal.valueOf(getCost())
+                    .multiply(BigDecimal.valueOf(ConfigManager.getDouble("refund_percent")))
+                    .divide(BigDecimal.valueOf(100), 10, RoundingMode.HALF_UP)
+                    .multiply(BigDecimal.valueOf(timesRented));
+            plugin.getPendingPayouts().payOrKeep(offlinePlayer, refund, "Refund for " + plain(getShopName()));
         }
-        economy.depositPlayer(offlinePlayer, collectedMoney.doubleValue());
+        plugin.getPendingPayouts().payOrKeep(offlinePlayer, collectedMoney, "Collected income from " + plain(getShopName()));
 
         List<ItemStack> storage = storageHolder.getItems();
         if (!storage.isEmpty()) {

@@ -213,6 +213,18 @@
                 </executions>
             </plugin>
             <plugin>
+                <!-- The NetherBank API interface is only here for compiling. It must NOT be in the jar:
+                     at runtime it comes from the NetherBank plugin itself. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.3.0</version>
+                <configuration>
+                    <excludes>
+                        <exclude>com/wamble/**</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>

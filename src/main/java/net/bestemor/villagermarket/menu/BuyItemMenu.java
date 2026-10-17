@@ -116,8 +116,9 @@ public class BuyItemMenu extends Menu {
         if (mode == ItemMode.SELL) {
             maxPurchasable = VMUtils.getAmountInventory(item.getRawItem(), player.getInventory());
         } else {
-            double balance = VMPlugin.getEconomy().getBalance(player);
-            maxPurchasable = (int) Math.floor(balance / item.getBuyPrice(1, false).doubleValue());
+            double balance = VMPlugin.getShopEconomy() == null ? 0 : VMPlugin.getShopEconomy().getBalance(player).doubleValue();
+            double unitPrice = item.getBuyPrice(1, false).doubleValue();
+            maxPurchasable = unitPrice <= 0 ? Integer.MAX_VALUE : (int) Math.min(Integer.MAX_VALUE, Math.floor(balance / unitPrice));
             maxPurchasable = Math.min(shop.getAvailable(item), maxPurchasable);
 
             int stackSize = item.getRawItem().getMaxStackSize();
