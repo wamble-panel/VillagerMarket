@@ -34,6 +34,8 @@ public class Shopfront {
 
     private Inventory editorInventory;
     private final Map<UUID, Inventory> customerInventories = new ConcurrentHashMap<>();
+    /** Per customer: slot -> price signature of what they were shown (see ShopItem#priceSignature). */
+    private final Map<UUID, Map<Integer, String>> shownPrices = new ConcurrentHashMap<>();
     private final Inventory detailedInventory;
 
     private ItemStack back;
@@ -152,13 +154,16 @@ public class Shopfront {
         }
 
         Inventory customerInventory = Bukkit.createInventory(null, size, customerTitle);
+        Map<Integer, String> shown = new ConcurrentHashMap<>();
         for (Integer slot : items.keySet()) {
             ShopItem item = items.get(slot);
             if (item == null) {
                 continue;
             }
             customerInventory.setItem(slot, item.getCustomerItem(player, item.getAmount()));
+            shown.put(slot, item.priceSignature(item.getAmount()));
         }
+        shownPrices.put(player.getUniqueId(), shown);
         buildBottom(customerInventory);
         if (!ConfigManager.getBoolean("disable_lore_toggle")) {
             customerInventory.setItem(size - 1, buildDetailsItem());
@@ -350,6 +355,13 @@ public class Shopfront {
                         if (shopItem == null) {
                             return;
                         }
+                        // Refuse the click if the price changed since this player's view was drawn.
+                        String shown = shownPrices.getOrDefault(player.getUniqueId(), Map.of()).get(event.getSlot());
+                        if (shown == null || !shown.equals(shopItem.priceSignature(shopItem.getAmount()))) {
+                            player.sendMessage(ConfigManager.getMessage("messages.price_changed"));
+                            Bukkit.getScheduler().runTaskAsynchronously(plugin, Shopfront.this::update);
+                            return;
+                        }
                         ItemMode mode = shopItem.getMode();
                         if (mode == ItemMode.BUY_AND_SELL || shopItem.isAllowCustomAmount()) {
                             mode = mode == ItemMode.BUY_AND_SELL ? ItemMode.BUY : mode;
@@ -396,6 +408,7 @@ public class Shopfront {
                 return;
             }
             customerInventories.remove(player.getUniqueId());
+            shownPrices.remove(player.getUniqueId());
 
             HandlerList.unregisterAll(this);
         }

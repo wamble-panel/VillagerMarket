@@ -122,14 +122,24 @@ public class StorageHolder {
         }
     }
 
-    public void addItem(ItemStack i, int amount) {
+    /**
+     * Adds items, spread over as many pages as needed.
+     *
+     * @return how many didn't fit (0 when the space was checked first, which every trade does)
+     */
+    public int addItem(ItemStack i, int amount) {
+        int left = amount;
         for (StorageMenu storage : storageMenus) {
-            int available = storage.getAvailableSpace(i);
-            if (available >= amount) {
-                storage.addItem(i, amount);
+            if (left <= 0) {
                 break;
             }
+            int put = Math.min(left, Math.max(0, storage.getAvailableSpace(i)));
+            if (put > 0) {
+                storage.addItem(i, put);
+                left -= put;
+            }
         }
+        return left;
     }
 
     public void setAddingAllowed(boolean b) {

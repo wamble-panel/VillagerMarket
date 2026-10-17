@@ -356,7 +356,8 @@ public class ShopItem {
             customer.sendMessage(ConfigManager.getMessage("messages.not_enough_in_inventory"));
             return false;
         }
-        if (!isItemTrade() && verifyMode == SELL && storage != null && storage.getAmount(item.clone()) < amount) {
+        // Stock is checked for item trades too: the customer gets this item out of the storage.
+        if (verifyMode == SELL && storage != null && storage.getAmount(item.clone()) < amount) {
             customer.sendMessage(ConfigManager.getMessage("messages.not_enough_stock"));
             return false;
         }
@@ -370,11 +371,17 @@ public class ShopItem {
             customer.sendMessage(ConfigManager.getMessage("messages.owner_not_enough_money"));
             return false;
         }
+        if (verifyMode == BUY && !isItemTrade() && isBuyAmountTooSmall(amount)) {
+            customer.sendMessage(ConfigManager.getMessage("messages.amount_too_small"));
+            return false;
+        }
         if (verifyMode == ItemMode.BUY && VMUtils.getAmountInventory(item.clone(), customer.getInventory()) < amount) {
             customer.sendMessage(ConfigManager.getMessage("messages.not_enough_in_inventory"));
             return false;
         }
-        if ((verifyMode == BUY || isItemTrade()) && amount > getAvailable()) {
+        // Recalculated right now (not the value cached for the menus), so storage space, stock and
+        // the owner's balance are exact at the moment of the trade.
+        if ((verifyMode == BUY || isItemTrade()) && amount > (shop == null ? getAvailable() : shop.getAvailable(this))) {
             customer.sendMessage(ConfigManager.getMessage("messages.reached_" + (isItemTrade() ? "buy" : "sell") + "_limit"));
             return false;
         }
@@ -542,8 +549,23 @@ public class ShopItem {
         }
     }
 
+    /**
+     * What the shop (or server) pays the customer for {@code amount}. Rounded DOWN to what the
+     * economy can move, so a custom amount can never be worth more than its share of the price.
+     */
     public BigDecimal getBuyPrice(int amount, boolean applyDiscount) {
-        BigDecimal basePrice = getBuyPrice(applyDiscount);
+        BigDecimal raw = rawPrice(getBuyPrice(applyDiscount), amount);
+        ShopEconomy economy = VMPlugin.getShopEconomy();
+        return economy == null ? raw.setScale(2, RoundingMode.FLOOR) : economy.floor(raw);
+    }
+
+    /** True if the shop would pay something for this amount, but less than the smallest coin. */
+    public boolean isBuyAmountTooSmall(int amount) {
+        return rawPrice(getBuyPrice(true), amount).signum() > 0 && getBuyPrice(amount, true).signum() == 0;
+    }
+
+    /** Price for {@code amount} items before rounding. */
+    private BigDecimal rawPrice(BigDecimal basePrice, int amount) {
         if (basePrice == null || basePrice.compareTo(BigDecimal.ZERO) == 0) {
             return BigDecimal.ZERO;
         }
@@ -551,8 +573,16 @@ public class ShopItem {
         if (stackAmount <= 0 || amount <= 0) {
             return BigDecimal.ZERO;
         }
-        return roundPrice(basePrice.multiply(BigDecimal.valueOf(amount))
-                .divide(BigDecimal.valueOf(stackAmount), 32, RoundingMode.HALF_UP));
+        return basePrice.multiply(BigDecimal.valueOf(amount)).divide(BigDecimal.valueOf(stackAmount), 32, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Everything that decides what a trade of {@code amount} costs or pays. Menus remember it when
+     * they show a price, and a click is refused if it changed since (owner edit, discount ended).
+     */
+    public String priceSignature(int amount) {
+        return mode + "|" + amount + "|" + this.amount + "|" + getSellPrice(amount, true).toPlainString()
+                + "|" + getBuyPrice(amount, true).toPlainString() + "|" + itemTradeAmount + "|" + itemTrade;
     }
 
     /**
@@ -564,17 +594,14 @@ public class ShopItem {
         return economy == null ? raw.setScale(2, RoundingMode.HALF_UP) : economy.price(raw);
     }
 
+    /**
+     * What the customer pays for {@code amount}. Rounded UP to what the economy can move, so a
+     * custom amount never costs less than its share of the price (and is never free).
+     */
     public BigDecimal getSellPrice(int amount, boolean applyDiscount) {
-        BigDecimal basePrice = getSellPrice(applyDiscount);
-        if (basePrice == null || basePrice.compareTo(BigDecimal.ZERO) == 0) {
-            return BigDecimal.ZERO;
-        }
-        int stackAmount = item.getAmount();
-        if (stackAmount <= 0 || amount <= 0) {
-            return BigDecimal.ZERO;
-        }
-        return roundPrice(basePrice.multiply(BigDecimal.valueOf(amount))
-                .divide(BigDecimal.valueOf(stackAmount), 32, RoundingMode.HALF_UP));
+        BigDecimal raw = rawPrice(getSellPrice(applyDiscount), amount);
+        ShopEconomy economy = VMPlugin.getShopEconomy();
+        return economy == null ? raw.setScale(2, RoundingMode.CEILING) : economy.ceil(raw);
     }
 
     private String getItemName(ItemStack i) {

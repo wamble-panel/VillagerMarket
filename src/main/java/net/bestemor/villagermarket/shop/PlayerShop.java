@@ -88,7 +88,7 @@ public class PlayerShop extends VillagerShop {
                 return;
             }
             removeItems(player.getInventory(), item.getItemTrade(), item.getItemTradeAmount());
-            storageHolder.addItem(item.getItemTrade(), item.getItemTradeAmount());
+            keepOverflow(item.getItemTrade(), storageHolder.addItem(item.getItemTrade(), item.getItemTradeAmount()));
 
             if (owner.isOnline() && owner.getPlayer() != null && !disableNotifications) {
                 Player ownerOnline = owner.getPlayer();
@@ -114,7 +114,7 @@ public class PlayerShop extends VillagerShop {
 
             // Take the money first. Nothing else happens unless the payment worked.
             ShopEconomy.Result result;
-            if (ConfigManager.getBoolean("require_collect")) {
+            if (ConfigManager.getBoolean("require_collect") && economy.canHoldIncome()) {
                 result = economy.withdraw(player, price, reason);
                 if (result.isSuccess()) {
                     super.collectedMoney = collectedMoney.add(ownerShare);
@@ -173,6 +173,7 @@ public class PlayerShop extends VillagerShop {
 
         player.playSound(player.getLocation(), ConfigManager.getSound("sounds.buy_item"), 1, 1);
         VMPlugin.log.add(new Date() + ": " + player.getName() + " bought " + amount + "x " + item.getType() + " from " + ownerName + " (" + price + ")");
+        saveAfterTrade(player);
     }
 
     @Override
@@ -204,7 +205,7 @@ public class PlayerShop extends VillagerShop {
         removeItems(player.getInventory(), item.getRawItem(), amount);
 
         BigDecimal moneyLeft = economy.getBalance(player);
-        storageHolder.addItem(item.getRawItem(), amount);
+        keepOverflow(item.getRawItem(), storageHolder.addItem(item.getRawItem(), amount));
         shopStats.addBought(amount);
         shopStats.addSpent(price.doubleValue());
 
@@ -238,6 +239,7 @@ public class PlayerShop extends VillagerShop {
                 .replace("%shop%", getShopName()).build());
 
         VMPlugin.log.add(new Date() + ": " + player.getName() + " sold " + amount + "x " + item.getType() + " to " + ownerName + " (" + price + ")");
+        saveAfterTrade(player);
     }
 
     @Override
@@ -260,6 +262,7 @@ public class PlayerShop extends VillagerShop {
                 return;
             }
             super.collectedMoney = collectedMoney.subtract(amount);
+            saveAfterTrade(player);
         }
         player.sendMessage(ConfigManager.getCurrencyBuilder("messages.collected_money").replaceCurrency("%amount%", amount).addPrefix().build());
         player.playSound(player.getLocation(), ConfigManager.getSound("sounds.collect_money"), 1, 1);
@@ -276,6 +279,34 @@ public class PlayerShop extends VillagerShop {
         Map<UUID, BigDecimal> parts = new LinkedHashMap<>();
         parts.put(ownerUUID, amount);
         return parts;
+    }
+
+    /**
+     * Saves the shop file and the player's data right after money moved, so a crash can't bring
+     * back items or income that were already paid for (NetherBank saves the money immediately).
+     */
+    private void saveAfterTrade(Player player) {
+        save();
+        player.saveData();
+    }
+
+    /** Items that didn't fit in storage go to the owner's expired storage (/vm expired) instead of vanishing. */
+    private void keepOverflow(ItemStack item, int amount) {
+        if (amount <= 0 || ownerUUID == null) {
+            return;
+        }
+        List<ItemStack> kept = new ArrayList<>();
+        int left = amount;
+        while (left > 0) {
+            ItemStack stack = item.clone();
+            int size = Math.min(left, stack.getMaxStackSize());
+            stack.setAmount(size);
+            kept.add(stack);
+            left -= size;
+        }
+        plugin.getShopManager().getExpiredStorages().computeIfAbsent(ownerUUID, uuid -> new ArrayList<>()).addAll(kept);
+        plugin.getLogger().warning(amount + "x " + item.getType() + " did not fit in the storage of " + plain(getShopName())
+                + " and were moved to the owner's expired storage.");
     }
 
     private static String plain(String text) {
@@ -313,7 +344,9 @@ public class PlayerShop extends VillagerShop {
         }
 
         BigDecimal unitPrice = shopItem.getBuyPrice();
-        if (owner != null && !shopItem.isItemTrade() && unitPrice.signum() > 0) {
+        // Menus refresh in the background; the bank can only be asked on the main thread. The real
+        // check happens again on the main thread right before every trade (ShopItem#verifyPurchase).
+        if (owner != null && !shopItem.isItemTrade() && unitPrice.signum() > 0 && Bukkit.isPrimaryThread()) {
             BigDecimal balance = economy == null ? BigDecimal.ZERO : economy.getBalance(owner);
             int affordable = balance.divide(unitPrice, 0, RoundingMode.FLOOR).min(BigDecimal.valueOf(Integer.MAX_VALUE / Math.max(1, shopItem.getAmount()))).intValue();
             available = Math.max(0, Math.min(available, affordable * shopItem.getAmount()));

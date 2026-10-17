@@ -11,7 +11,8 @@ import org.bukkit.OfflinePlayer;
  * <p>Get it with {@code Bukkit.getServicesManager().load(NetherBankEconomy.class)}.</p>
  *
  * <ul>
- *   <li>Call everything on the main server thread.</li>
+ *   <li>Call everything on the main server thread. Only {@link #getBalance} and {@link #has} may be
+ *       called from other threads; they then use a cached balance (fine for display, not for paying).</li>
  *   <li>Amounts are in netherite (1 = one ingot) and must be multiples of {@link #step()} (0.25 by
  *       default). Use {@link #roundUp}, {@link #roundDown} or {@link #roundNearest} first.</li>
  *   <li>Offline players work too; their bank is loaded on the spot.</li>

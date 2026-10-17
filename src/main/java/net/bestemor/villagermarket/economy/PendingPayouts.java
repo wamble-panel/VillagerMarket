@@ -46,18 +46,23 @@ public final class PendingPayouts {
 
     /** Pays the player now if possible, otherwise remembers it. */
     public void payOrKeep(OfflinePlayer player, BigDecimal amount, String reason) {
+        if (amount == null || amount.signum() <= 0) {
+            return;
+        }
         ShopEconomy economy = VMPlugin.getShopEconomy();
-        if (amount.signum() <= 0 || economy == null) {
-            return;
+        BigDecimal payable = economy == null ? BigDecimal.ZERO : economy.floor(amount);
+        if (payable.signum() > 0 && economy.deposit(player, payable, reason).isSuccess()) {
+            amount = amount.subtract(payable);
+            if (amount.signum() <= 0) {
+                return;
+            }
+        } else {
+            plugin.getLogger().info("Could not pay " + amount + " to " + player.getName() + " (" + reason
+                    + "), it will be paid when it fits.");
         }
-        BigDecimal rounded = economy.floor(amount);
-        if (rounded.signum() > 0 && economy.deposit(player, rounded, reason).isSuccess()) {
-            return;
-        }
-        owed.merge(player.getUniqueId(), rounded, BigDecimal::add);
+        // Whatever couldn't be paid (including amounts smaller than the smallest coin) is kept.
+        owed.merge(player.getUniqueId(), amount, BigDecimal::add);
         save();
-        plugin.getLogger().info("Could not pay " + rounded + " to " + player.getName() + " (" + reason
-                + "), it will be paid when it fits.");
     }
 
     /** Tries to pay out what the player is owed. */
@@ -67,21 +72,40 @@ public final class PendingPayouts {
         if (amount == null || economy == null) {
             return;
         }
-        if (economy.deposit(player, amount, "Money owed by a shop").isSuccess()) {
+        // Pay what the economy can move; a remainder smaller than the smallest coin stays owed.
+        BigDecimal payable = economy.floor(amount);
+        if (payable.signum() <= 0) {
+            return;
+        }
+        BigDecimal rest = amount.subtract(payable);
+        // Write the new owed amount before paying, so a failed save can never lead to paying twice.
+        if (rest.signum() > 0) {
+            owed.put(player.getUniqueId(), rest);
+        } else {
             owed.remove(player.getUniqueId());
-            save();
+        }
+        if (!save()) {
+            owed.put(player.getUniqueId(), amount);
+            return;
+        }
+        if (economy.deposit(player, payable, "Money owed by a shop").isSuccess()) {
             player.sendMessage(ConfigManager.getCurrencyBuilder("messages.pending_money_paid")
-                    .replaceCurrency("%amount%", amount).addPrefix().build());
+                    .replaceCurrency("%amount%", payable).addPrefix().build());
+        } else {
+            owed.put(player.getUniqueId(), amount);
+            save();
         }
     }
 
-    private void save() {
+    private boolean save() {
         YamlConfiguration yaml = new YamlConfiguration();
         owed.forEach((uuid, amount) -> yaml.set(uuid.toString(), amount.toPlainString()));
         try {
             yaml.save(file);
+            return true;
         } catch (IOException e) {
             plugin.getLogger().log(Level.SEVERE, "Could not save pending_payouts.yml", e);
+            return false;
         }
     }
 }

@@ -120,14 +120,14 @@ public abstract class VillagerShop {
         }
     }
 
-    /** The tax on a price, rounded up to what the economy can move and never more than the price. */
+    /** The tax on a price, rounded down to what the economy can move (so small trades aren't taxed 100%). */
     protected BigDecimal taxOf(BigDecimal price) {
         ShopEconomy economy = VMPlugin.getShopEconomy();
         BigDecimal percent = BigDecimal.valueOf(ConfigManager.getDouble("tax"));
         if (economy == null || percent.signum() <= 0 || price.signum() <= 0) {
             return BigDecimal.ZERO;
         }
-        BigDecimal tax = economy.ceil(price.multiply(percent).divide(BigDecimal.valueOf(100), 10, java.math.RoundingMode.HALF_UP));
+        BigDecimal tax = economy.floor(price.multiply(percent).divide(BigDecimal.valueOf(100), 10, java.math.RoundingMode.HALF_UP));
         return tax.min(price);
     }
 

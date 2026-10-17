@@ -33,6 +33,15 @@ public interface ShopEconomy {
 
     String getName();
 
+    /**
+     * Whether shop income may be held in the shop until it's collected (require_collect). With
+     * NetherBank it's paid straight to the owner instead: holding it would take scrap from the
+     * customer and later pay the owner in ingots, turning scrap into ingots for free.
+     */
+    default boolean canHoldIncome() {
+        return true;
+    }
+
     /** Smallest amount this economy can move (0.25 for NetherBank, 0.01 for Vault). */
     BigDecimal step();
 

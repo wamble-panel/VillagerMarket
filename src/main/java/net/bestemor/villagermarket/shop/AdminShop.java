@@ -75,6 +75,8 @@ public class AdminShop extends VillagerShop {
         Bukkit.getPluginManager().callEvent(buyShopItemsEvent);
 
         player.playSound(player.getLocation(), ConfigManager.getSound("sounds.buy_item"), 1, 1);
+        save();
+        player.saveData();
 
         VMPlugin.log.add(new Date() + ": " + player.getName() + " bought " + amount + "x " + item.getType() + " from Admin Shop " + "(" + price.toPlainString() + ")");
 
@@ -113,6 +115,8 @@ public class AdminShop extends VillagerShop {
         Bukkit.getPluginManager().callEvent(sellShopItemsEvent);
 
         player.playSound(player.getLocation(), ConfigManager.getSound("sounds.sell_item"), 0.5f, 1);
+        save();
+        player.saveData();
 
         String currency = config.getString("currency");
         String valueCurrency = (config.getBoolean("currency_before") ? currency + price : price + currency);

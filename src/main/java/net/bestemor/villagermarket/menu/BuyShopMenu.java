@@ -61,6 +61,12 @@ public class BuyShopMenu extends Menu {
         content.setClickable(buyShopSlot, Clickable.of(buyShop, (event) -> {
             Player player = (Player) event.getWhoClicked();
 
+            // Several players can have this menu open; only the first purchase counts.
+            if (shop.hasOwner()) {
+                player.closeInventory();
+                player.sendMessage(ConfigManager.getMessage("messages.shop_already_owned"));
+                return;
+            }
             ShopEconomy economy = VMPlugin.getShopEconomy();
             if (economy == null) {
                 player.sendMessage(ConfigManager.getMessage("messages.economy_error"));
@@ -92,6 +98,11 @@ public class BuyShopMenu extends Menu {
                 return;
             }
 
+            if (shop.hasOwner()) {
+                player.closeInventory();
+                player.sendMessage(ConfigManager.getMessage("messages.shop_already_owned"));
+                return;
+            }
             // The shop is only handed over once the money is taken.
             ShopEconomy.Result paid = economy.withdraw(player, shopCost, "Bought a villager shop");
             if (!paid.isSuccess()) {

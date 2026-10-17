@@ -65,6 +65,9 @@ messages:
   economy_error: "&cPayments are unavailable right now, please try again in a moment."
   price_rounded: "&7Prices go in steps of the bank's smallest amount, so the price was set to &e%price%&7."
   pending_money_paid: "&aYou received &e%amount% &athat a shop owed you."
+  price_changed: "&cThe price of this item just changed. Check the new price and try again."
+  amount_too_small: "&cThat amount is worth less than the smallest coin. Choose a bigger amount!"
+  shop_already_owned: "&cSomeone just bought this shop!"
   not_enough_in_inventory: "&cYou do not have enough items in your inventory!"
   #Placeholders: %player%, %amount%, %item%, %price%
   bought_item_as_owner: "&b%player%&7 sold you &b%amount%x %item%&7 for &a%price%&7."

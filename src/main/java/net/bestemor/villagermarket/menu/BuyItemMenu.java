@@ -88,9 +88,23 @@ public class BuyItemMenu extends Menu {
     protected void onUpdate(MenuContent content) {
         int confirmSlot = ConfigManager.getInt("menus.buy_item.confirm_slot");
         ItemStack confirmItem = item.getCustomerItem(player, amount, mode);
+        final int shownAmount = amount;
+        final String shownPrice = item.priceSignature(shownAmount);
 
         content.setClickable(confirmSlot, Clickable.of(confirmItem, event -> {
             Player player = (Player) event.getWhoClicked();
+
+            // The item was removed (or the shop reset), or its price changed since this was shown.
+            if (shop.getShopfrontHolder().getItemList().get(item.getSlot()) != item) {
+                player.closeInventory();
+                player.sendMessage(ConfigManager.getMessage("messages.price_changed"));
+                return;
+            }
+            if (shownAmount != amount || !item.priceSignature(amount).equals(shownPrice)) {
+                player.sendMessage(ConfigManager.getMessage("messages.price_changed"));
+                update();
+                return;
+            }
 
             if (item.getMode() == ItemMode.COMMAND && shop instanceof AdminShop adminShop) {
                 adminShop.buyCommand(player, item);

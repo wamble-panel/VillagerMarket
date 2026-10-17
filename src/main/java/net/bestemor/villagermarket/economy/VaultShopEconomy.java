@@ -91,7 +91,10 @@ public final class VaultShopEconomy implements ShopEconomy {
             }
             // Roll back everything done so far.
             for (Map.Entry<OfflinePlayer, BigDecimal> done : paid) {
-                economy.withdrawPlayer(done.getKey(), done.getValue().doubleValue());
+                if (!ok(economy.withdrawPlayer(done.getKey(), done.getValue().doubleValue()))) {
+                    Bukkit.getLogger().log(Level.SEVERE, "[VillagerMarket] Could not take back " + done.getValue()
+                            + " from " + done.getKey().getName() + " after a failed payment (" + reason + ")");
+                }
             }
             if (!ok(economy.depositPlayer(from, total.doubleValue()))) {
                 Bukkit.getLogger().log(Level.SEVERE, "[VillagerMarket] Could not refund " + total + " to "

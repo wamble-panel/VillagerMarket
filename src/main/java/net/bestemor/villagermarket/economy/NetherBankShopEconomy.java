@@ -30,6 +30,11 @@ public final class NetherBankShopEconomy implements ShopEconomy {
     }
 
     @Override
+    public boolean canHoldIncome() {
+        return false;
+    }
+
+    @Override
     public BigDecimal step() {
         return BigDecimal.valueOf(bank.step());
     }
